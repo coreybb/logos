@@ -54,6 +54,7 @@ CREATE TABLE readings(
   created_at timestamp NOT NULL,
   content_hash varchar(64) NOT NULL,
   excerpt text NOT NULL,
+  format varchar(10) NOT NULL DEFAULT 'html',
   published_at timestamp with time zone,
   storage_path varchar(255) NOT NULL,
   title text NOT NULL,

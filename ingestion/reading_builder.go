@@ -171,8 +171,20 @@ func (rb *ReadingBuilder) determineSourceIDFromSenderEmail(ctx context.Context, 
 	source, err := rb.sourceRepo.GetSourceByIdentifierAndType(ctx, senderEmail, "email")
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
-			log.Printf("INFO (ReadingBuilder): No 'email' type ReadingSource found for sender: '%s' (Message-ID: '%s').", senderEmail, messageIDFromMIME)
-			return uuid.Nil.String(), nil
+			log.Printf("INFO (ReadingBuilder): No 'email' type ReadingSource found for sender '%s'. Auto-creating. (Message-ID: '%s')", senderEmail, messageIDFromMIME)
+			newSource := models.ReadingSource{
+				ID:         uuid.NewString(),
+				CreatedAt:  time.Now().UTC(),
+				Name:       senderEmail,
+				Type:       "email",
+				Identifier: senderEmail,
+			}
+			if createErr := rb.sourceRepo.CreateReadingSource(ctx, &newSource); createErr != nil {
+				log.Printf("ERROR (ReadingBuilder): Failed to auto-create ReadingSource for sender '%s' (Message-ID: '%s'): %v", senderEmail, messageIDFromMIME, createErr)
+				return uuid.Nil.String(), fmt.Errorf("failed to auto-create source: %w", createErr)
+			}
+			log.Printf("INFO (ReadingBuilder): Auto-created ReadingSource ID '%s' for sender '%s' (Message-ID: '%s')", newSource.ID, senderEmail, messageIDFromMIME)
+			return newSource.ID, nil
 		}
 		log.Printf("ERROR (ReadingBuilder): Failed to query ReadingSource for sender '%s' (Message-ID: '%s'): %v", senderEmail, messageIDFromMIME, err)
 		return uuid.Nil.String(), fmt.Errorf("failed to query source: %w", err)

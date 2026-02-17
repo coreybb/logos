@@ -121,11 +121,11 @@ func (r *EditionRepository) AddReadingToEdition(ctx context.Context, editionID, 
 func (r *EditionRepository) GetReadingsForEdition(ctx context.Context, editionID string) ([]models.Reading, error) {
 	query := `
 		SELECT r.id, r.reading_source_id, r.author, r.created_at, r.content_hash,
-		       r.excerpt, r.published_at, r.storage_path, r.title
+		       r.excerpt, r.format, r.published_at, r.storage_path, r.title
 		FROM readings r
 		JOIN edition_readings er ON r.id = er.reading_id
 		WHERE er.edition_id = $1
-		ORDER BY r.created_at DESC -- Or based on edition_readings.created_at?
+		ORDER BY r.created_at DESC
 	`
 	rows, err := r.db.QueryContext(ctx, query, editionID)
 	if err != nil {
@@ -136,13 +136,15 @@ func (r *EditionRepository) GetReadingsForEdition(ctx context.Context, editionID
 	var readings []models.Reading
 	for rows.Next() {
 		var reading models.Reading
+		var formatStr string
 		if err := rows.Scan(
 			&reading.ID, &reading.SourceID, &reading.Author, &reading.CreatedAt,
-			&reading.ContentHash, &reading.Excerpt, &reading.PublishedAt,
+			&reading.ContentHash, &reading.Excerpt, &formatStr, &reading.PublishedAt,
 			&reading.StoragePath, &reading.Title,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan reading row for edition %s: %w", editionID, err)
 		}
+		reading.Format = models.ReadingFormat(formatStr)
 		readings = append(readings, reading)
 	}
 

@@ -37,12 +37,12 @@ func (r *ReadingRepository) CreateReading(ctx context.Context, reading *models.R
 	query := `
 		INSERT INTO readings (
 			id, reading_source_id, author, created_at, content_hash,
-			excerpt, published_at, storage_path, title
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			excerpt, format, published_at, storage_path, title
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
 	_, err := r.db.ExecContext(ctx, query,
 		reading.ID, reading.SourceID, reading.Author, reading.CreatedAt, reading.ContentHash,
-		reading.Excerpt, reading.PublishedAt, reading.StoragePath, reading.Title,
+		reading.Excerpt, string(reading.Format), reading.PublishedAt, reading.StoragePath, reading.Title,
 	)
 	if err != nil {
 		// Add specific error checks, e.g., unique constraint on content_hash?
@@ -64,18 +64,20 @@ func (r *ReadingRepository) GetReadingByContentHash(ctx context.Context, hash st
 
 	query := `
 		SELECT id, reading_source_id, author, created_at, content_hash,
-		       excerpt, published_at, storage_path, title
+		       excerpt, format, published_at, storage_path, title
 		FROM readings
 		WHERE content_hash = $1
 		LIMIT 1
 	` // LIMIT 1 just in case (though hash should be unique)
 	var reading models.Reading
+	var formatStr string
 	row := r.db.QueryRowContext(ctx, query, hash)
 	err := row.Scan(
 		&reading.ID, &reading.SourceID, &reading.Author, &reading.CreatedAt,
-		&reading.ContentHash, &reading.Excerpt, &reading.PublishedAt,
+		&reading.ContentHash, &reading.Excerpt, &formatStr, &reading.PublishedAt,
 		&reading.StoragePath, &reading.Title,
 	)
+	reading.Format = models.ReadingFormat(formatStr)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			// Not finding a reading by hash is not an application error in this context.
@@ -96,15 +98,16 @@ func (r *ReadingRepository) GetReadingByID(ctx context.Context, readingID string
 
 	query := `
 		SELECT id, reading_source_id, author, created_at, content_hash,
-		       excerpt, published_at, storage_path, title
+		       excerpt, format, published_at, storage_path, title
 		FROM readings
 		WHERE id = $1
 	`
 	var reading models.Reading
+	var formatStr string
 	row := r.db.QueryRowContext(ctx, query, readingID)
 	err := row.Scan(
 		&reading.ID, &reading.SourceID, &reading.Author, &reading.CreatedAt,
-		&reading.ContentHash, &reading.Excerpt, &reading.PublishedAt,
+		&reading.ContentHash, &reading.Excerpt, &formatStr, &reading.PublishedAt,
 		&reading.StoragePath, &reading.Title,
 	)
 	if err != nil {
@@ -113,6 +116,7 @@ func (r *ReadingRepository) GetReadingByID(ctx context.Context, readingID string
 		}
 		return nil, fmt.Errorf("failed to get reading by ID: %w", err)
 	}
+	reading.Format = models.ReadingFormat(formatStr)
 	return &reading, nil
 }
 
@@ -121,10 +125,10 @@ func (r *ReadingRepository) GetReadingByID(ctx context.Context, readingID string
 func (r *ReadingRepository) GetReadings(ctx context.Context) ([]models.Reading, error) {
 	query := `
 		SELECT id, reading_source_id, author, created_at, content_hash,
-		       excerpt, published_at, storage_path, title
+		       excerpt, format, published_at, storage_path, title
 		FROM readings
 		ORDER BY created_at DESC
-	` // Example: order by creation time
+	`
 	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query readings: %w", err)
@@ -134,13 +138,15 @@ func (r *ReadingRepository) GetReadings(ctx context.Context) ([]models.Reading, 
 	var readings []models.Reading
 	for rows.Next() {
 		var reading models.Reading
+		var formatStr string
 		if err := rows.Scan(
 			&reading.ID, &reading.SourceID, &reading.Author, &reading.CreatedAt,
-			&reading.ContentHash, &reading.Excerpt, &reading.PublishedAt,
+			&reading.ContentHash, &reading.Excerpt, &formatStr, &reading.PublishedAt,
 			&reading.StoragePath, &reading.Title,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan reading row: %w", err)
 		}
+		reading.Format = models.ReadingFormat(formatStr)
 		readings = append(readings, reading)
 	}
 
@@ -163,11 +169,11 @@ func (r *ReadingRepository) GetReadingsByUserID(ctx context.Context, userID stri
 
 	query := `
 		SELECT r.id, r.reading_source_id, r.author, r.created_at, r.content_hash,
-		       r.excerpt, r.published_at, r.storage_path, r.title
+		       r.excerpt, r.format, r.published_at, r.storage_path, r.title
 		FROM readings r
 		JOIN user_readings ur ON r.id = ur.reading_id
 		WHERE ur.user_id = $1
-		ORDER BY ur.received_at DESC -- Order by when the user received it
+		ORDER BY ur.received_at DESC
 	`
 	rows, err := r.db.QueryContext(ctx, query, userID)
 	if err != nil {
@@ -178,13 +184,15 @@ func (r *ReadingRepository) GetReadingsByUserID(ctx context.Context, userID stri
 	var readings []models.Reading
 	for rows.Next() {
 		var reading models.Reading
+		var formatStr string
 		if err := rows.Scan(
 			&reading.ID, &reading.SourceID, &reading.Author, &reading.CreatedAt,
-			&reading.ContentHash, &reading.Excerpt, &reading.PublishedAt,
+			&reading.ContentHash, &reading.Excerpt, &formatStr, &reading.PublishedAt,
 			&reading.StoragePath, &reading.Title,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan reading row for user %s: %w", userID, err)
 		}
+		reading.Format = models.ReadingFormat(formatStr)
 		readings = append(readings, reading)
 	}
 

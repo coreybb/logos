@@ -9,7 +9,6 @@ import (
 	"github.com/coreybb/logos/conversion"
 	"github.com/coreybb/logos/datastore"
 	"github.com/coreybb/logos/ingestion"
-	"github.com/coreybb/logos/storage"
 	"github.com/coreybb/logos/webutil"
 	"github.com/jhillyerd/enmime"
 )
@@ -24,10 +23,11 @@ const (
 )
 
 type InboundEmailHandler struct {
-	Orchestrator *ingestion.IngestionOrchestrator
+	Orchestrator      *ingestion.IngestionOrchestrator
+	AllowedSenderRepo *datastore.AllowedSenderRepository
 }
 
-func NewInboundEmailHandler(readingRepo *datastore.ReadingRepository, sourceRepo *datastore.SourceRepository) *InboundEmailHandler {
+func NewInboundEmailHandler(readingRepo *datastore.ReadingRepository, sourceRepo *datastore.SourceRepository, allowedSenderRepo *datastore.AllowedSenderRepository) *InboundEmailHandler {
 	contentProc := ingestion.NewContentProcessor()
 	converterInst, errConv := conversion.NewConverter()
 	if errConv != nil {
@@ -39,17 +39,16 @@ func NewInboundEmailHandler(readingRepo *datastore.ReadingRepository, sourceRepo
 
 	pipelineService := ingestion.NewContentPipelineService(converterInst, contentProc)
 	readingBuild := ingestion.NewReadingBuilder(sourceRepo)
-	contentStore := storage.NewLocalFileStorer("")
 	orch := ingestion.NewIngestionOrchestrator(
 		readingRepo,
 		sourceRepo,
 		pipelineService,
 		readingBuild,
-		contentStore,
 	)
 
 	return &InboundEmailHandler{
-		Orchestrator: orch,
+		Orchestrator:      orch,
+		AllowedSenderRepo: allowedSenderRepo,
 	}
 }
 

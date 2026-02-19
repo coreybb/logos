@@ -7,21 +7,14 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"time"
 
-	"io"
 	"strings"
 
 	"github.com/coreybb/logos/datastore"
 	"github.com/coreybb/logos/ebook"
 	"github.com/coreybb/logos/models"
 	"github.com/google/uuid"
-)
-
-const (
-	readingsBaseDir   = "_output" // Assuming Reading.StoragePath is relative to this
-	editionsOutputDir = "_output/editions"
 )
 
 // EditionProcessor handles the business logic for processing an edition,
@@ -115,11 +108,8 @@ func (ep *EditionProcessor) ProcessAndGenerateEdition(
 		// TODO: Add cover image support if needed
 	}
 
-	// 5. Define outputDir for editions (ensure it's absolute)
-	absEditionsOutputDir, err := filepath.Abs(editionsOutputDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get absolute path for editions output directory '%s': %w", editionsOutputDir, err)
-	}
+	// 5. Use a temp directory for ebook output (ephemeral — file is read and sent via email)
+	absEditionsOutputDir := os.TempDir()
 
 	// 6. Call ep.Generator.GenerateEdition()
 	log.Printf("INFO (EditionProcessor): Generating edition %s (%s) from combined readings (%s) to format %s", edition.ID, edition.Name, combinedHTMLPath, targetFormat)
@@ -166,53 +156,25 @@ func (ep *EditionProcessor) ProcessAndGenerateEdition(
 func combineReadingsHTML(ctx context.Context, readings []models.Reading, editionID string) (string, func(), error) {
 	var combinedHTML strings.Builder
 	combinedHTML.WriteString("<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>Edition</title></head><body>")
-	combinedHTML.WriteString(fmt.Sprintf("<h1>Edition: %s</h1>", editionID)) // Optional: Add edition title
+	combinedHTML.WriteString(fmt.Sprintf("<h1>Edition: %s</h1>", editionID))
 
 	var validReadingsCount int
 	for _, reading := range readings {
-		if reading.StoragePath == "" {
-			log.Printf("WARN (EditionProcessor): Skipping reading %s for edition %s: missing storage path", reading.ID, editionID)
-			continue
-		}
 		if reading.Format != models.ReadingFormatHTML {
 			log.Printf("WARN (EditionProcessor): Skipping reading %s for edition %s: format is %s, not HTML", reading.ID, editionID, reading.Format)
 			continue
 		}
-
-		// Construct absolute path relative to readingsBaseDir
-		absPath, err := filepath.Abs(filepath.Join(readingsBaseDir, reading.StoragePath))
-		if err != nil {
-			log.Printf("WARN (EditionProcessor): Skipping reading %s for edition %s: failed to get absolute path for '%s': %v", reading.ID, editionID, reading.StoragePath, err)
-			continue // Skip this reading if path fails
+		if reading.ContentBody == "" {
+			log.Printf("WARN (EditionProcessor): Skipping reading %s for edition %s: empty content body", reading.ID, editionID)
+			continue
 		}
 
-		// Check if file exists
-		if _, err := os.Stat(absPath); os.IsNotExist(err) {
-			log.Printf("WARN (EditionProcessor): Skipping reading %s for edition %s: HTML file '%s' not found", reading.ID, editionID, absPath)
-			continue // Skip this reading if file doesn't exist
-		}
-
-		// Read the HTML content
-		htmlFile, err := os.Open(absPath)
-		if err != nil {
-			log.Printf("WARN (EditionProcessor): Skipping reading %s for edition %s: failed to open HTML file '%s': %v", reading.ID, editionID, absPath, err)
-			continue // Skip this reading if opening fails
-		}
-		defer htmlFile.Close() // Ensure file is closed after reading
-
-		// Add a separator and title for each reading within the combined HTML
 		combinedHTML.WriteString(fmt.Sprintf("<hr><h2>%s</h2>", reading.Title))
 		if reading.Author != "" {
 			combinedHTML.WriteString(fmt.Sprintf("<p><i>By %s</i></p>", reading.Author))
 		}
 
-		_, err = io.Copy(&combinedHTML, htmlFile)
-		if err != nil {
-			log.Printf("WARN (EditionProcessor): Skipping reading %s for edition %s: failed to read HTML content from '%s': %v", reading.ID, editionID, absPath, err)
-			htmlFile.Close() // Close explicitly on error before continuing
-			continue         // Skip this reading if reading fails
-		}
-		htmlFile.Close() // Close explicitly after successful read
+		combinedHTML.WriteString(reading.ContentBody)
 		validReadingsCount++
 	}
 

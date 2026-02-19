@@ -11,7 +11,6 @@ import (
 
 	"github.com/coreybb/logos/datastore"
 	"github.com/coreybb/logos/models"
-	"github.com/coreybb/logos/storage"
 	"github.com/jhillyerd/enmime"
 )
 
@@ -21,7 +20,6 @@ type IngestionOrchestrator struct {
 	SourceRepo     *datastore.SourceRepository
 	Pipeline       *ContentPipelineService
 	ReadingBuilder *ReadingBuilder
-	ContentStorer  storage.ContentStorer
 }
 
 // Creates a new IngestionOrchestrator.
@@ -30,14 +28,12 @@ func NewIngestionOrchestrator(
 	sourceRepo *datastore.SourceRepository,
 	pipeline *ContentPipelineService,
 	readingBuilder *ReadingBuilder,
-	contentStorer storage.ContentStorer,
 ) *IngestionOrchestrator {
 	return &IngestionOrchestrator{
 		ReadingRepo:    readingRepo,
 		SourceRepo:     sourceRepo,
 		Pipeline:       pipeline,
 		ReadingBuilder: readingBuilder,
-		ContentStorer:  contentStorer,
 	}
 }
 
@@ -290,12 +286,9 @@ func (io *IngestionOrchestrator) persistNewReading(
 ) error {
 	log.Printf("INFO (IngestionOrchestrator): Content hash %s not found. Processing as new reading. (UserID %s, Message-ID %s)", reading.ContentHash, userID, messageIDFromMIME)
 
-	var storeErr error
-	reading.StoragePath, storeErr = io.ContentStorer.Store(userID, reading.ID, contentToStore, formatForStorage)
-	if storeErr != nil {
-		log.Printf("ERROR (IngestionOrchestrator): Failed to store NEW content (format: %s) for ReadingID %s, UserID %s (Message-ID: %s): %v", formatForStorage, reading.ID, userID, messageIDFromMIME, storeErr)
-		return fmt.Errorf("failed to store content: %w", storeErr)
-	}
+	// Store content body in the reading for DB persistence
+	reading.ContentBody = string(contentToStore)
+	reading.StoragePath = fmt.Sprintf("readings/%s/%s.%s", userID, reading.ID, string(formatForStorage))
 
 	if errDbCreate := io.ReadingRepo.CreateReading(ctx, reading); errDbCreate != nil {
 		log.Printf("ERROR (IngestionOrchestrator): Failed to create NEW Reading DB record for ReadingID %s, UserID %s (Message-ID: %s): %v", reading.ID, userID, messageIDFromMIME, errDbCreate)

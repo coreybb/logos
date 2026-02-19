@@ -18,6 +18,7 @@ import (
 	"github.com/coreybb/logos/ebook"
 	"github.com/coreybb/logos/processing"
 	rh "github.com/coreybb/logos/route-handlers"
+	"github.com/coreybb/logos/scheduler"
 	"github.com/coreybb/logos/webhooks"
 	"github.com/go-chi/chi/v5"
 	_ "github.com/lib/pq"
@@ -60,6 +61,8 @@ func main() {
 	destinationRepo := datastore.NewDestinationRepository(db)
 	editionTemplateRepo := datastore.NewEditionTemplateRepository(db)
 	userReadingSourceRepo := datastore.NewUserReadingSourceRepository(db)
+	editionTemplateSourceRepo := datastore.NewEditionTemplateSourceRepository(db)
+	allowedSenderRepo := datastore.NewAllowedSenderRepository(db)
 	deliveryAttemptRepo := datastore.NewDeliveryAttemptRepository(db)
 
 	// Initialize ebook generator
@@ -86,9 +89,10 @@ func main() {
 	destinationHandler := rh.NewDestinationHandler(destinationRepo)
 	editionTemplateHandler := rh.NewEditionTemplateHandler(editionTemplateRepo)
 	userReadingSourceHandler := rh.NewUserReadingSourceHandler(userReadingSourceRepo)
+	editionTemplateSourceHandler := rh.NewEditionTemplateSourceHandler(editionTemplateSourceRepo)
+	allowedSenderHandler := rh.NewAllowedSenderHandler(allowedSenderRepo)
 
-	// Initialize InboundEmailHandler with ReadingRepo and SourceRepo
-	inboundEmailHandler := webhooks.NewInboundEmailHandler(readingRepo, sourceRepo)
+	inboundEmailHandler := webhooks.NewInboundEmailHandler(readingRepo, sourceRepo, allowedSenderRepo)
 
 	apiRouter := api.SetupRoutes(
 		userHandler,
@@ -99,14 +103,26 @@ func main() {
 		destinationHandler,
 		editionTemplateHandler,
 		userReadingSourceHandler,
+		editionTemplateSourceHandler,
+		allowedSenderHandler,
+	)
+
+	// Initialize scheduler
+	editionScheduler := scheduler.New(
+		editionTemplateRepo,
+		editionTemplateSourceRepo,
+		editionRepo,
+		readingRepo,
+		destinationRepo,
+		editionProcessor,
+		deliveryService,
 	)
 
 	mainRouter := chi.NewRouter()
 	mainRouter.Mount("/", apiRouter)
 
-	// Add webhook routes directly
-	// This path should match what SendGrid's Inbound Parse is configured to POST to.
 	mainRouter.Post("/webhooks/inbound-email", inboundEmailHandler.HandleInbound)
+	mainRouter.Post("/scheduler/tick", editionScheduler.HandleTick)
 
 	startServer(cfg.port, mainRouter)
 }
@@ -117,10 +133,10 @@ func loadConfig() config {
 		port = defaultPort
 	}
 
-	dbURL := os.Getenv("DATABASE_URL")
+	dbURL := os.Getenv("DB_CONNECTION_STRING")
 	if dbURL == "" {
 		dbURL = defaultDatabaseURL
-		log.Println("WARNING: DATABASE_URL not set, using default local connection string.")
+		log.Println("WARNING: DB_CONNECTION_STRING not set, using default local connection string.")
 	}
 
 	sendGridAPIKey := os.Getenv("SENDGRID_API_KEY")

@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 const sendgridMailEndpoint = "https://api.sendgrid.com/v3/mail/send"
@@ -20,6 +22,7 @@ type EmailDeliveryProvider struct {
 	apiKey    string
 	fromEmail string
 	fromName  string
+	client    *http.Client
 }
 
 func NewEmailDeliveryProvider(apiKey, fromEmail, fromName string) *EmailDeliveryProvider {
@@ -27,6 +30,9 @@ func NewEmailDeliveryProvider(apiKey, fromEmail, fromName string) *EmailDelivery
 		apiKey:    apiKey,
 		fromEmail: fromEmail,
 		fromName:  fromName,
+		client: &http.Client{
+			Timeout: 30 * time.Second,
+		},
 	}
 }
 
@@ -63,6 +69,25 @@ func (p *EmailDeliveryProvider) Deliver(ctx context.Context, filePath string, fi
 		return fmt.Errorf("failed to marshal SendGrid payload: %w", err)
 	}
 
+	// Retry up to 3 times with backoff for transient network errors
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			log.Printf("INFO (EmailDeliveryProvider): Retry attempt %d for SendGrid delivery", attempt)
+			time.Sleep(time.Duration(attempt*5) * time.Second)
+		}
+
+		lastErr = p.sendRequest(ctx, body)
+		if lastErr == nil {
+			return nil
+		}
+		log.Printf("WARN (EmailDeliveryProvider): Attempt %d failed: %v", attempt+1, lastErr)
+	}
+
+	return lastErr
+}
+
+func (p *EmailDeliveryProvider) sendRequest(ctx context.Context, body []byte) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, sendgridMailEndpoint, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create SendGrid request: %w", err)
@@ -70,7 +95,7 @@ func (p *EmailDeliveryProvider) Deliver(ctx context.Context, filePath string, fi
 	req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := p.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("SendGrid request failed: %w", err)
 	}

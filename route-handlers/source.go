@@ -48,7 +48,7 @@ func (h *SourceHandler) HandleCreateSource(w http.ResponseWriter, r *http.Reques
 	}
 
 	newSource := models.ReadingSource{
-		ID:        uuid.NewString(),
+		ID:         uuid.NewString(),
 		CreatedAt:  time.Now().UTC(),
 		Name:       req.Name,
 		Type:       req.Type,
@@ -73,6 +73,25 @@ func (h *SourceHandler) HandleGetSources(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		log.Printf("ERROR: Failed to get reading sources: %v", err)
 		return webutil.ErrInternalServerWrap("Failed to retrieve reading sources", err)
+	}
+
+	webutil.RespondWithJSON(w, http.StatusOK, sources)
+	return nil
+}
+
+// HandleGetUnassignedSources retrieves sources that have provided content to this user
+// but are not yet assigned to any edition template. These are sources awaiting triage.
+// Example route: GET /api/users/{userID}/sources/unassigned
+func (h *SourceHandler) HandleGetUnassignedSources(w http.ResponseWriter, r *http.Request) error {
+	userID := chi.URLParam(r, "userID")
+	if _, err := uuid.Parse(userID); err != nil {
+		return webutil.ErrBadRequest("Invalid userID format in path")
+	}
+
+	sources, err := h.Repo.GetUnassignedSourcesByUserID(r.Context(), userID)
+	if err != nil {
+		log.Printf("ERROR: Failed to get unassigned sources for user %s: %v", userID, err)
+		return webutil.ErrInternalServerWrap("Failed to retrieve unassigned sources", err)
 	}
 
 	webutil.RespondWithJSON(w, http.StatusOK, sources)

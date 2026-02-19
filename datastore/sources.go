@@ -86,6 +86,50 @@ func (r *SourceRepository) GetSourceByIdentifierAndType(ctx context.Context, ide
 	return &source, nil
 }
 
+// GetUnassignedSourcesByUserID retrieves reading sources that have provided content
+// to this user but are not yet assigned to any of the user's edition templates.
+// These are sources awaiting triage.
+func (r *SourceRepository) GetUnassignedSourcesByUserID(ctx context.Context, userID string) ([]models.ReadingSource, error) {
+	if _, err := uuid.Parse(userID); err != nil {
+		return nil, fmt.Errorf("invalid user ID format: %w", err)
+	}
+
+	query := `
+		SELECT DISTINCT rs.id, rs.created_at, rs.name, rs.type, rs.identifier
+		FROM reading_sources rs
+		JOIN readings rd ON rd.reading_source_id = rs.id
+		JOIN user_readings ur ON ur.reading_id = rd.id AND ur.user_id = $1
+		WHERE rs.id NOT IN (
+			SELECT ets.reading_source_id
+			FROM edition_template_sources ets
+			JOIN edition_templates et ON et.id = ets.edition_template_id
+			WHERE et.user_id = $1
+		)
+		ORDER BY rs.name ASC
+	`
+	rows, err := r.db.QueryContext(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query unassigned sources for user %s: %w", userID, err)
+	}
+	defer rows.Close()
+
+	var sources []models.ReadingSource
+	for rows.Next() {
+		var source models.ReadingSource
+		if err := rows.Scan(&source.ID, &source.CreatedAt, &source.Name, &source.Type, &source.Identifier); err != nil {
+			return nil, fmt.Errorf("failed to scan unassigned source row for user %s: %w", userID, err)
+		}
+		sources = append(sources, source)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating unassigned source rows for user %s: %w", userID, err)
+	}
+	if sources == nil {
+		sources = []models.ReadingSource{}
+	}
+	return sources, nil
+}
+
 func (r *SourceRepository) GetReadingSources(ctx context.Context) ([]models.ReadingSource, error) {
 	query := `SELECT id, created_at, name, type, identifier FROM reading_sources ORDER BY name ASC`
 	rows, err := r.db.QueryContext(ctx, query)

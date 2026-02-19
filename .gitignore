@@ -1,0 +1,9 @@
+# Secrets
+.env
+.env.local
+
+# Binary
+logos
+
+# OS
+.DS_Store

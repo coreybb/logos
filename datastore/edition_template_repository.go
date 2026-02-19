@@ -28,7 +28,7 @@ var (
 		string(models.EditionFormatMOBI): true,
 		string(models.EditionFormatPDF):  true,
 	}
-	validEditionDeliveryInterval = map[string]bool{"hourly": true, "daily": true, "weekly": true, "monthly": true}
+	validEditionDeliveryInterval = map[string]bool{"every_five_minutes": true, "hourly": true, "daily": true, "weekly": true, "monthly": true}
 	timeRegex                    = regexp.MustCompile(`^([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$`)
 )
 
@@ -251,6 +251,49 @@ func (r *EditionTemplateRepository) UpdateEditionTemplate(ctx context.Context, t
 	}
 
 	return nil
+}
+
+// GetAllRecurringTemplates fetches all edition templates where is_recurring is true.
+func (r *EditionTemplateRepository) GetAllRecurringTemplates(ctx context.Context) ([]models.EditionTemplate, error) {
+	query := `
+		SELECT id, user_id, created_at, name, description,
+		       format, delivery_interval, delivery_time, is_recurring
+		FROM edition_templates
+		WHERE is_recurring = true
+	`
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query recurring edition templates: %w", err)
+	}
+	defer rows.Close()
+
+	var templates []models.EditionTemplate
+	for rows.Next() {
+		var t models.EditionTemplate
+		var description sql.NullString
+		var formatStr string
+		if err := rows.Scan(
+			&t.ID, &t.UserID, &t.CreatedAt, &t.Name, &description,
+			&formatStr, &t.DeliveryInterval, &t.DeliveryTime, &t.IsRecurring,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan recurring edition template row: %w", err)
+		}
+		if description.Valid {
+			t.Description = description.String
+		}
+		t.Format = models.EditionFormat(formatStr)
+		templates = append(templates, t)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating recurring edition template rows: %w", err)
+	}
+
+	if templates == nil {
+		templates = []models.EditionTemplate{}
+	}
+
+	return templates, nil
 }
 
 func (r *EditionTemplateRepository) DeleteEditionTemplate(ctx context.Context, templateID string, userID string) error {

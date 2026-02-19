@@ -107,6 +107,31 @@ func (r *DestinationRepository) GetDestinationsByUserID(ctx context.Context, use
 	return destinations, nil
 }
 
+// GetDefaultDestinationByUserID returns the user's default delivery destination.
+// Returns nil, nil if no default destination is set.
+func (r *DestinationRepository) GetDefaultDestinationByUserID(ctx context.Context, userID string) (*models.DeliveryDestination, error) {
+	if _, err := uuid.Parse(userID); err != nil {
+		return nil, fmt.Errorf("invalid user ID format: %w", err)
+	}
+
+	query := `
+		SELECT id, user_id, created_at, is_default, name, type
+		FROM delivery_destinations_base
+		WHERE user_id = $1 AND is_default = true
+		LIMIT 1
+	`
+	var dest models.DeliveryDestination
+	row := r.db.QueryRowContext(ctx, query, userID)
+	err := row.Scan(&dest.ID, &dest.UserID, &dest.CreatedAt, &dest.IsDefault, &dest.Name, &dest.Type)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get default destination for user %s: %w", userID, err)
+	}
+	return &dest, nil
+}
+
 func (r *DestinationRepository) GetEmailDestinationDetails(ctx context.Context, destinationID string) (*models.DeliveryDestination, string, error) {
 	if _, err := uuid.Parse(destinationID); err != nil {
 		return nil, "", fmt.Errorf("invalid destination ID format: %w", err)

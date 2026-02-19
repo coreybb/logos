@@ -1,10 +1,13 @@
 package models
 
+import "time"
+
 type Edition struct {
-	ID                string `json:"id"`
-	UserID            string `json:"user_id"`
-	Name              string `json:"name"`
-	EditionTemplateID string `json:"edition_template_id"`
+	ID                string    `json:"id"`
+	UserID            string    `json:"user_id"`
+	Name              string    `json:"name"`
+	EditionTemplateID string    `json:"edition_template_id"`
+	CreatedAt         time.Time `json:"created_at"`
 }
 
 // EditionMetadata contains metadata for generating an ebook.

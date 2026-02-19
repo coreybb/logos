@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/coreybb/logos/datastore"
 	"github.com/coreybb/logos/delivery"
@@ -170,6 +171,7 @@ func (h *EditionHandler) HandleCreateEdition(w http.ResponseWriter, r *http.Requ
 		UserID:            req.UserID,
 		Name:              req.Name,
 		EditionTemplateID: req.EditionTemplateID,
+		CreatedAt:         time.Now().UTC(),
 	}
 
 	err := h.Repo.CreateEdition(r.Context(), &newEdition, req.EditionTemplateID)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/coreybb/logos/models"
 	"github.com/google/uuid"
@@ -26,13 +27,16 @@ func (r *EditionRepository) CreateEdition(ctx context.Context, edition *models.E
 		return fmt.Errorf("invalid edition_template_id format: %w", err)
 	}
 
+	if edition.CreatedAt.IsZero() {
+		edition.CreatedAt = time.Now().UTC()
+	}
+
 	query := `
-		INSERT INTO editions (id, user_id, edition_template_id, name)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO editions (id, user_id, edition_template_id, name, created_at)
+		VALUES ($1, $2, $3, $4, $5)
 	`
-	_, err := r.db.ExecContext(ctx, query, edition.ID, edition.UserID, templateID, edition.Name)
+	_, err := r.db.ExecContext(ctx, query, edition.ID, edition.UserID, templateID, edition.Name, edition.CreatedAt)
 	if err != nil {
-		// Add specific error checks if needed (e.g., foreign key violation)
 		return fmt.Errorf("failed to insert edition: %w", err)
 	}
 	return nil
@@ -42,13 +46,13 @@ func (r *EditionRepository) CreateEdition(ctx context.Context, edition *models.E
 // It fetches fields present in the editions table.
 func (r *EditionRepository) GetEditionByID(ctx context.Context, editionID string) (*models.Edition, error) {
 	query := `
-		SELECT id, user_id, name, edition_template_id
+		SELECT id, user_id, name, edition_template_id, created_at
 		FROM editions
 		WHERE id = $1
 	`
 	var edition models.Edition
 	row := r.db.QueryRowContext(ctx, query, editionID)
-	err := row.Scan(&edition.ID, &edition.UserID, &edition.Name, &edition.EditionTemplateID)
+	err := row.Scan(&edition.ID, &edition.UserID, &edition.Name, &edition.EditionTemplateID, &edition.CreatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("edition not found: %w", err)
@@ -60,11 +64,11 @@ func (r *EditionRepository) GetEditionByID(ctx context.Context, editionID string
 
 func (r *EditionRepository) GetEditionsByUserID(ctx context.Context, userID string) ([]models.Edition, error) {
 	query := `
-		SELECT id, user_id, name, edition_template_id
+		SELECT id, user_id, name, edition_template_id, created_at
 		FROM editions
 		WHERE user_id = $1
-		ORDER BY name ASC
-	` // Example ordering
+		ORDER BY created_at DESC
+	`
 	rows, err := r.db.QueryContext(ctx, query, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query editions by user ID: %w", err)
@@ -74,7 +78,7 @@ func (r *EditionRepository) GetEditionsByUserID(ctx context.Context, userID stri
 	var editions []models.Edition
 	for rows.Next() {
 		var edition models.Edition
-		if err := rows.Scan(&edition.ID, &edition.UserID, &edition.Name, &edition.EditionTemplateID); err != nil {
+		if err := rows.Scan(&edition.ID, &edition.UserID, &edition.Name, &edition.EditionTemplateID, &edition.CreatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan edition row: %w", err)
 		}
 		editions = append(editions, edition)
@@ -121,7 +125,7 @@ func (r *EditionRepository) AddReadingToEdition(ctx context.Context, editionID, 
 func (r *EditionRepository) GetReadingsForEdition(ctx context.Context, editionID string) ([]models.Reading, error) {
 	query := `
 		SELECT r.id, r.reading_source_id, r.author, r.created_at, r.content_hash,
-		       r.excerpt, r.format, r.published_at, r.storage_path, r.title
+		       r.content_body, r.excerpt, r.format, r.published_at, r.storage_path, r.title
 		FROM readings r
 		JOIN edition_readings er ON r.id = er.reading_id
 		WHERE er.edition_id = $1
@@ -139,7 +143,7 @@ func (r *EditionRepository) GetReadingsForEdition(ctx context.Context, editionID
 		var formatStr string
 		if err := rows.Scan(
 			&reading.ID, &reading.SourceID, &reading.Author, &reading.CreatedAt,
-			&reading.ContentHash, &reading.Excerpt, &formatStr, &reading.PublishedAt,
+			&reading.ContentHash, &reading.ContentBody, &reading.Excerpt, &formatStr, &reading.PublishedAt,
 			&reading.StoragePath, &reading.Title,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan reading row for edition %s: %w", editionID, err)
@@ -157,4 +161,30 @@ func (r *EditionRepository) GetReadingsForEdition(ctx context.Context, editionID
 	}
 
 	return readings, nil
+}
+
+// GetLatestEditionByTemplateID returns the most recent edition for a given template.
+// Returns nil, nil if no editions exist for the template.
+func (r *EditionRepository) GetLatestEditionByTemplateID(ctx context.Context, templateID string) (*models.Edition, error) {
+	if _, err := uuid.Parse(templateID); err != nil {
+		return nil, fmt.Errorf("invalid template ID format: %w", err)
+	}
+
+	query := `
+		SELECT id, user_id, name, edition_template_id, created_at
+		FROM editions
+		WHERE edition_template_id = $1
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+	var edition models.Edition
+	row := r.db.QueryRowContext(ctx, query, templateID)
+	err := row.Scan(&edition.ID, &edition.UserID, &edition.Name, &edition.EditionTemplateID, &edition.CreatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get latest edition by template ID: %w", err)
+	}
+	return &edition, nil
 }

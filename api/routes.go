@@ -23,9 +23,11 @@ const (
 )
 
 const (
-	readingsSubPath      = "/readings"
-	statusSubPath        = "/status"
-	subscriptionsSubPath = "/subscriptions" // For user subscriptions to sources
+	readingsSubPath       = "/readings"
+	sourcesSubPath        = "/sources"
+	statusSubPath         = "/status"
+	subscriptionsSubPath  = "/subscriptions"   // For user subscriptions to sources
+	allowedSendersSubPath = "/allowed-senders" // For user's allowed sender whitelist
 )
 
 const (
@@ -41,6 +43,8 @@ func SetupRoutes(
 	destinationHandler *rh.DestinationHandler,
 	editionTemplateHandler *rh.EditionTemplateHandler,
 	userReadingSourceHandler *rh.UserReadingSourceHandler,
+	editionTemplateSourceHandler *rh.EditionTemplateSourceHandler,
+	allowedSenderHandler *rh.AllowedSenderHandler,
 ) http.Handler {
 	r := chi.NewRouter()
 
@@ -61,7 +65,10 @@ func SetupRoutes(
 		configureSourceRoutes(r, sourceHandler)
 		configureDestinationRoutes(r, destinationHandler)
 		configureEditionTemplateRoutes(r, editionTemplateHandler)
+		configureEditionTemplateSourceRoutes(r, editionTemplateSourceHandler)
 		configureUserSubscriptionRoutes(r, userReadingSourceHandler)
+		configureUserSourceRoutes(r, sourceHandler)
+		configureAllowedSenderRoutes(r, allowedSenderHandler)
 	})
 
 	// Health check endpoint
@@ -200,6 +207,46 @@ func configureUserSubscriptionRoutes(r chi.Router, handler *rh.UserReadingSource
 		r.Route(pathWithParam("", "sourceID"), func(r chi.Router) {
 			r.Post("/", webutil.MakeHandler(handler.HandleSubscribeUserToSource))       // Subscribe
 			r.Delete("/", webutil.MakeHandler(handler.HandleUnsubscribeUserFromSource)) // Unsubscribe
+		})
+	})
+}
+
+// --- User Source Routes ---
+func configureUserSourceRoutes(r chi.Router, sourceHandler *rh.SourceHandler) {
+	// Path: /users/{userID}/sources/unassigned
+	userSourcesPath := usersBasePath + pathWithParam("", "userID") + sourcesSubPath
+
+	r.Route(userSourcesPath, func(r chi.Router) {
+		r.Get("/unassigned", webutil.MakeHandler(sourceHandler.HandleGetUnassignedSources))
+	})
+}
+
+// --- Edition Template Source Routes (source-to-template assignment) ---
+func configureEditionTemplateSourceRoutes(r chi.Router, handler *rh.EditionTemplateSourceHandler) {
+	// Path: /edition-templates/{templateID}/sources
+	templateSourcesPath := editionTemplatesBasePath + pathWithParam("", "templateID") + sourcesSubPath
+
+	r.Route(templateSourcesPath, func(r chi.Router) {
+		r.Get("/", webutil.MakeHandler(handler.HandleGetTemplateSources))
+
+		r.Route(pathWithParam("", "sourceID"), func(r chi.Router) {
+			r.Post("/", webutil.MakeHandler(handler.HandleAddSourceToTemplate))
+			r.Delete("/", webutil.MakeHandler(handler.HandleRemoveSourceFromTemplate))
+		})
+	})
+}
+
+// --- Allowed Sender Routes ---
+func configureAllowedSenderRoutes(r chi.Router, handler *rh.AllowedSenderHandler) {
+	// Path: /users/{userID}/allowed-senders
+	allowedSendersPath := usersBasePath + pathWithParam("", "userID") + allowedSendersSubPath
+
+	r.Route(allowedSendersPath, func(r chi.Router) {
+		r.Get("/", webutil.MakeHandler(handler.HandleGetAllowedSenders))
+		r.Post("/", webutil.MakeHandler(handler.HandleCreateAllowedSender))
+
+		r.Route(pathWithParam("", paramID), func(r chi.Router) {
+			r.Delete("/", webutil.MakeHandler(handler.HandleDeleteAllowedSender))
 		})
 	})
 }

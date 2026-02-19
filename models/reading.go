@@ -22,6 +22,7 @@ type Reading struct {
 	Author      string        `json:"author,omitempty"`
 	CreatedAt   time.Time     `json:"created_at"`
 	ContentHash string        `json:"content_hash"`
+	ContentBody string        `json:"-"`
 	Excerpt     string        `json:"excerpt"`
 	PublishedAt *time.Time    `json:"published_at,omitempty"`
 	StoragePath string        `json:"storage_path"`

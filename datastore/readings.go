@@ -37,12 +37,12 @@ func (r *ReadingRepository) CreateReading(ctx context.Context, reading *models.R
 	query := `
 		INSERT INTO readings (
 			id, reading_source_id, author, created_at, content_hash,
-			excerpt, format, published_at, storage_path, title
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			content_body, excerpt, format, published_at, storage_path, title
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`
 	_, err := r.db.ExecContext(ctx, query,
 		reading.ID, reading.SourceID, reading.Author, reading.CreatedAt, reading.ContentHash,
-		reading.Excerpt, string(reading.Format), reading.PublishedAt, reading.StoragePath, reading.Title,
+		reading.ContentBody, reading.Excerpt, string(reading.Format), reading.PublishedAt, reading.StoragePath, reading.Title,
 	)
 	if err != nil {
 		// Add specific error checks, e.g., unique constraint on content_hash?
@@ -198,6 +198,102 @@ func (r *ReadingRepository) GetReadingsByUserID(ctx context.Context, userID stri
 
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating reading rows for user %s: %w", userID, err)
+	}
+
+	if readings == nil {
+		readings = []models.Reading{}
+	}
+
+	return readings, nil
+}
+
+// GetUserReadingsSince retrieves readings for a user received after the given time.
+func (r *ReadingRepository) GetUserReadingsSince(ctx context.Context, userID string, since time.Time) ([]models.Reading, error) {
+	if _, err := uuid.Parse(userID); err != nil {
+		return nil, fmt.Errorf("invalid user ID format: %w", err)
+	}
+
+	query := `
+		SELECT r.id, r.reading_source_id, r.author, r.created_at, r.content_hash,
+		       r.excerpt, r.format, r.published_at, r.storage_path, r.title
+		FROM readings r
+		JOIN user_readings ur ON r.id = ur.reading_id
+		WHERE ur.user_id = $1 AND ur.received_at > $2
+		ORDER BY ur.received_at ASC
+	`
+	rows, err := r.db.QueryContext(ctx, query, userID, since)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query readings since %v for user %s: %w", since, userID, err)
+	}
+	defer rows.Close()
+
+	var readings []models.Reading
+	for rows.Next() {
+		var reading models.Reading
+		var formatStr string
+		if err := rows.Scan(
+			&reading.ID, &reading.SourceID, &reading.Author, &reading.CreatedAt,
+			&reading.ContentHash, &reading.Excerpt, &formatStr, &reading.PublishedAt,
+			&reading.StoragePath, &reading.Title,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan reading row: %w", err)
+		}
+		reading.Format = models.ReadingFormat(formatStr)
+		readings = append(readings, reading)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating reading rows: %w", err)
+	}
+
+	if readings == nil {
+		readings = []models.Reading{}
+	}
+
+	return readings, nil
+}
+
+// GetUserReadingsSinceBySourceIDs retrieves readings for a user received after the given
+// time, filtered to only include readings from the specified source IDs.
+func (r *ReadingRepository) GetUserReadingsSinceBySourceIDs(ctx context.Context, userID string, since time.Time, sourceIDs []string) ([]models.Reading, error) {
+	if _, err := uuid.Parse(userID); err != nil {
+		return nil, fmt.Errorf("invalid user ID format: %w", err)
+	}
+	if len(sourceIDs) == 0 {
+		return []models.Reading{}, nil
+	}
+
+	query := `
+		SELECT r.id, r.reading_source_id, r.author, r.created_at, r.content_hash,
+		       r.excerpt, r.format, r.published_at, r.storage_path, r.title
+		FROM readings r
+		JOIN user_readings ur ON r.id = ur.reading_id
+		WHERE ur.user_id = $1 AND ur.received_at > $2 AND r.reading_source_id = ANY($3)
+		ORDER BY ur.received_at ASC
+	`
+	rows, err := r.db.QueryContext(ctx, query, userID, since, sourceIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query readings by source IDs for user %s: %w", userID, err)
+	}
+	defer rows.Close()
+
+	var readings []models.Reading
+	for rows.Next() {
+		var reading models.Reading
+		var formatStr string
+		if err := rows.Scan(
+			&reading.ID, &reading.SourceID, &reading.Author, &reading.CreatedAt,
+			&reading.ContentHash, &reading.Excerpt, &formatStr, &reading.PublishedAt,
+			&reading.StoragePath, &reading.Title,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan reading row: %w", err)
+		}
+		reading.Format = models.ReadingFormat(formatStr)
+		readings = append(readings, reading)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating reading rows: %w", err)
 	}
 
 	if readings == nil {

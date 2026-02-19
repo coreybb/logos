@@ -12,10 +12,8 @@ type Edition struct {
 
 // EditionMetadata contains metadata for generating an ebook.
 type EditionMetadata struct {
-	Title           string
-	Author          string
-	Publisher       string   // Optional
-	Tags            []string // Optional
-	Language        string   // Optional, ISO639 code
-	CoverImageBytes []byte   // Optional, raw bytes of the cover image
+	Title    string
+	Author   string
+	Date     string // Display date for title page
+	Language string // Optional, ISO639 code
 }

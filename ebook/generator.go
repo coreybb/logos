@@ -29,10 +29,11 @@ func NewEditionGenerator() *EditionGenerator {
 	return &EditionGenerator{}
 }
 
-// GenerateEdition converts an input HTML file to an EPUB.
+// GenerateEdition creates an EPUB from a set of readings with a title page,
+// table of contents, and individual chapters per article.
 func (eg *EditionGenerator) GenerateEdition(
 	ctx context.Context,
-	inputHTMLPath string,
+	readings []models.Reading,
 	metadata models.EditionMetadata,
 	outputFormat models.EditionFormat,
 	outputDir string,
@@ -40,8 +41,8 @@ func (eg *EditionGenerator) GenerateEdition(
 	colorImages bool,
 ) (generatedFilePath string, fileSize int64, err error) {
 
-	if inputHTMLPath == "" {
-		return "", 0, fmt.Errorf("input HTML path cannot be empty")
+	if len(readings) == 0 {
+		return "", 0, fmt.Errorf("no readings provided")
 	}
 	if outputDir == "" {
 		return "", 0, fmt.Errorf("output directory cannot be empty")
@@ -72,16 +73,28 @@ func (eg *EditionGenerator) GenerateEdition(
 		e.SetLang("en")
 	}
 
-	htmlBytes, err := os.ReadFile(inputHTMLPath)
+	// Title page
+	titlePageHTML := buildTitlePage(title, author, metadata.Date)
+	_, err = e.AddSection(titlePageHTML, title, "titlepage", "")
 	if err != nil {
-		return "", 0, fmt.Errorf("failed to read input HTML: %w", err)
+		return "", 0, fmt.Errorf("failed to add title page: %w", err)
 	}
 
-	htmlContent := embedImages(e, string(htmlBytes), colorImages)
+	// Each reading as its own chapter
+	for i, reading := range readings {
+		if reading.Format != models.ReadingFormatHTML || reading.ContentBody == "" {
+			continue
+		}
 
-	_, err = e.AddSection(htmlContent, title, "", "")
-	if err != nil {
-		return "", 0, fmt.Errorf("failed to add section to epub: %w", err)
+		articleHTML := buildArticleSection(reading)
+		articleHTML = embedImages(e, articleHTML, colorImages)
+
+		sectionID := fmt.Sprintf("article-%d", i+1)
+		_, err = e.AddSection(articleHTML, reading.Title, sectionID, "")
+		if err != nil {
+			log.Printf("WARN (EditionGenerator): Failed to add section for reading %s: %v", reading.ID, err)
+			continue
+		}
 	}
 
 	if err := os.MkdirAll(outputDir, os.ModePerm); err != nil {
@@ -102,10 +115,32 @@ func (eg *EditionGenerator) GenerateEdition(
 	}
 
 	duration := time.Since(startTime)
-	log.Printf("INFO (EditionGenerator): Successfully generated EPUB for edition %s: %s (Size: %d bytes, Took: %s)",
-		editionID, fullOutputFilePath, stat.Size(), duration)
+	log.Printf("INFO (EditionGenerator): Successfully generated EPUB for edition %s: %s (%d articles, %d bytes, %s)",
+		editionID, fullOutputFilePath, len(readings), stat.Size(), duration)
 
 	return fullOutputFilePath, stat.Size(), nil
+}
+
+func buildTitlePage(title, author, date string) string {
+	if date == "" {
+		date = time.Now().Format("January 2, 2006")
+	}
+
+	return fmt.Sprintf(`<div style="text-align: center; padding-top: 40%%;">
+	<h1 style="font-size: 2em; margin-bottom: 0.5em;">%s</h1>
+	<p style="font-size: 1.2em; color: #666;">%s</p>
+	<p style="font-size: 1em; color: #999; margin-top: 2em;">%s</p>
+</div>`, title, date, author)
+}
+
+func buildArticleSection(reading models.Reading) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf(`<h1>%s</h1>`, reading.Title))
+	if reading.Author != "" {
+		sb.WriteString(fmt.Sprintf(`<p style="color: #666; font-style: italic; margin-bottom: 2em;">%s</p>`, reading.Author))
+	}
+	sb.WriteString(reading.ContentBody)
+	return sb.String()
 }
 
 // embedImages finds all <img> tags with external URLs, downloads and embeds

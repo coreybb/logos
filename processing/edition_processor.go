@@ -7,9 +7,8 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
-
 	"strings"
+	"time"
 
 	"github.com/coreybb/logos/datastore"
 	"github.com/coreybb/logos/ebook"
@@ -20,13 +19,11 @@ import (
 // EditionProcessor handles the business logic for processing an edition,
 // including generating the ebook and creating delivery records.
 type EditionProcessor struct {
-	EditionRepo  *datastore.EditionRepository
-	ReadingRepo  *datastore.ReadingRepository
-	DeliveryRepo *datastore.DeliveryRepository
-	// Potentially EditionTemplateRepo to get default format/destination
+	EditionRepo         *datastore.EditionRepository
+	ReadingRepo         *datastore.ReadingRepository
+	DeliveryRepo        *datastore.DeliveryRepository
 	EditionTemplateRepo *datastore.EditionTemplateRepository
 	Generator           *ebook.EditionGenerator
-	// storageConfig StorageConfig
 }
 
 // NewEditionProcessor creates a new EditionProcessor.
@@ -36,7 +33,6 @@ func NewEditionProcessor(
 	deliveryRepo *datastore.DeliveryRepository,
 	editionTemplateRepo *datastore.EditionTemplateRepository,
 	generator *ebook.EditionGenerator,
-	// storageCfg StorageConfig,
 ) *EditionProcessor {
 	return &EditionProcessor{
 		EditionRepo:         editionRepo,
@@ -44,7 +40,6 @@ func NewEditionProcessor(
 		DeliveryRepo:        deliveryRepo,
 		EditionTemplateRepo: editionTemplateRepo,
 		Generator:           generator,
-		// storageConfig: storageCfg,
 	}
 }
 
@@ -75,17 +70,9 @@ func (ep *EditionProcessor) ProcessAndGenerateEdition(
 		return nil, fmt.Errorf("no readings found for edition %s, cannot generate ebook", editionID)
 	}
 
-	// 3. Combine HTML content from all readings into a temporary file
-	combinedHTMLPath, cleanupFunc, err := combineReadingsHTML(ctx, readings, editionID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to combine readings for edition %s: %w", editionID, err)
-	}
-	defer cleanupFunc() // Ensure temp file is deleted
-
-	// 4. Prepare EditionMetadata
-	// Collect authors from all readings for the metadata
+	// 3. Prepare EditionMetadata
 	var authors []string
-	authorSet := make(map[string]struct{}) // Use a set to avoid duplicate authors
+	authorSet := make(map[string]struct{})
 	for _, r := range readings {
 		if r.Author != "" {
 			if _, exists := authorSet[r.Author]; !exists {
@@ -96,28 +83,25 @@ func (ep *EditionProcessor) ProcessAndGenerateEdition(
 	}
 	authorString := strings.Join(authors, ", ")
 	if authorString == "" {
-		authorString = "Logos Reader" // Default author if none found
+		authorString = "Logos"
 	}
 
 	metadata := models.EditionMetadata{
-		Title:  edition.Name, // Use edition name as ebook title
+		Title:  edition.Name,
 		Author: authorString,
-		// Publisher: "Logos Ebooks", // Example
-		// Language: "en", // Example
-		// TODO: Add cover image support if needed
+		Date:   edition.CreatedAt.Format("January 2, 2006"),
 	}
 
-	// 5. Use a temp directory for ebook output (ephemeral — file is read and sent via email)
-	absEditionsOutputDir := os.TempDir()
+	// 4. Generate the EPUB
+	outputDir := os.TempDir()
+	log.Printf("INFO (EditionProcessor): Generating edition %s (%s) with %d readings", edition.ID, edition.Name, len(readings))
 
-	// 6. Call ep.Generator.GenerateEdition()
-	log.Printf("INFO (EditionProcessor): Generating edition %s (%s) from combined readings (%s) to format %s", edition.ID, edition.Name, combinedHTMLPath, targetFormat)
 	generatedFilePath, fileSize, genErr := ep.Generator.GenerateEdition(
 		ctx,
-		combinedHTMLPath,
+		readings,
 		metadata,
 		targetFormat,
-		absEditionsOutputDir,
+		outputDir,
 		edition.ID,
 		colorImages,
 	)
@@ -125,96 +109,24 @@ func (ep *EditionProcessor) ProcessAndGenerateEdition(
 		return nil, fmt.Errorf("failed to generate ebook for edition %s: %w", editionID, genErr)
 	}
 
-	// 7. If successful, create and save Delivery record
+	// 5. Create Delivery record
 	newDelivery := models.Delivery{
 		ID:                    uuid.NewString(),
 		EditionID:             editionID,
 		DeliveryDestinationID: deliveryDestinationID,
 		CreatedAt:             time.Now().UTC(),
 		Format:                targetFormat,
-		FilePath:              generatedFilePath, // Store the absolute path from generator
-		FileSize:              int(fileSize),     // Ensure type compatibility
+		FilePath:              generatedFilePath,
+		FileSize:              int(fileSize),
 		Status:                models.DeliveryStatusPending,
-		// CompletedAt, StartedAt are nil initially
 	}
 
 	err = ep.DeliveryRepo.CreateDelivery(ctx, &newDelivery)
 	if err != nil {
-		// TODO: Consider cleanup? If delivery record fails, should we delete the generated ebook file?
-		// For now, the file exists but there's no delivery record.
 		log.Printf("ERROR (EditionProcessor): Generated ebook for edition %s at %s, but failed to create delivery record: %v", editionID, generatedFilePath, err)
 		return nil, fmt.Errorf("failed to create delivery record for edition %s after generation: %w", editionID, err)
 	}
 
 	log.Printf("INFO (EditionProcessor): Successfully processed edition %s. Ebook: %s, Delivery pending: %s", editionID, generatedFilePath, newDelivery.ID)
 	return &newDelivery, nil
-}
-
-// combineReadingsHTML reads the HTML content for each reading, combines them into
-// a single HTML document, writes it to a temporary file, and returns the path
-// to that file along with a cleanup function.
-func combineReadingsHTML(ctx context.Context, readings []models.Reading, editionID string) (string, func(), error) {
-	var combinedHTML strings.Builder
-	combinedHTML.WriteString("<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>Edition</title></head><body>")
-	combinedHTML.WriteString(fmt.Sprintf("<h1>Edition: %s</h1>", editionID))
-
-	var validReadingsCount int
-	for _, reading := range readings {
-		if reading.Format != models.ReadingFormatHTML {
-			log.Printf("WARN (EditionProcessor): Skipping reading %s for edition %s: format is %s, not HTML", reading.ID, editionID, reading.Format)
-			continue
-		}
-		if reading.ContentBody == "" {
-			log.Printf("WARN (EditionProcessor): Skipping reading %s for edition %s: empty content body", reading.ID, editionID)
-			continue
-		}
-
-		combinedHTML.WriteString(fmt.Sprintf("<hr><h2>%s</h2>", reading.Title))
-		if reading.Author != "" {
-			combinedHTML.WriteString(fmt.Sprintf("<p><i>By %s</i></p>", reading.Author))
-		}
-
-		combinedHTML.WriteString(reading.ContentBody)
-		validReadingsCount++
-	}
-
-	combinedHTML.WriteString("</body></html>")
-
-	if validReadingsCount == 0 {
-		return "", func() {}, fmt.Errorf("no valid HTML readings found to combine for edition %s", editionID)
-	}
-
-	// Create a temporary file to store the combined HTML
-	tmpFile, err := os.CreateTemp("", fmt.Sprintf("edition-%s-*.html", editionID))
-	if err != nil {
-		return "", func() {}, fmt.Errorf("failed to create temporary HTML file for edition %s: %w", editionID, err)
-	}
-
-	// Write the combined HTML to the temporary file
-	_, err = tmpFile.WriteString(combinedHTML.String())
-	if err != nil {
-		tmpFile.Close() // Close before removing
-		os.Remove(tmpFile.Name())
-		return "", func() {}, fmt.Errorf("failed to write combined HTML to temporary file %s: %w", tmpFile.Name(), err)
-	}
-
-	// Close the file before returning its path
-	err = tmpFile.Close()
-	if err != nil {
-		os.Remove(tmpFile.Name())
-		return "", func() {}, fmt.Errorf("failed to close temporary file %s: %w", tmpFile.Name(), err)
-	}
-
-	// Return the path and a function to remove the temp file
-	tmpFilePath := tmpFile.Name()
-	cleanupFunc := func() {
-		log.Printf("DEBUG (EditionProcessor): Cleaning up temporary combined HTML file: %s", tmpFilePath)
-		err := os.Remove(tmpFilePath)
-		if err != nil && !os.IsNotExist(err) { // Don't log error if file already removed
-			log.Printf("WARN (EditionProcessor): Failed to remove temporary combined HTML file %s: %v", tmpFilePath, err)
-		}
-	}
-
-	log.Printf("INFO (EditionProcessor): Combined %d readings into temporary file: %s", validReadingsCount, tmpFilePath)
-	return tmpFilePath, cleanupFunc, nil
 }

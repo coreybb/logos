@@ -64,8 +64,8 @@ func (r *EditionTemplateRepository) CreateEditionTemplate(ctx context.Context, t
 	query := `
 		INSERT INTO edition_templates (
 			id, user_id, created_at, name, description,
-			format, delivery_interval, delivery_time, is_recurring
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			format, delivery_interval, delivery_time, is_recurring, color_images
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
 	_, err := r.db.ExecContext(ctx, query,
 		template.ID,
@@ -73,10 +73,11 @@ func (r *EditionTemplateRepository) CreateEditionTemplate(ctx context.Context, t
 		template.CreatedAt,
 		template.Name,
 		NewNullString(template.Description),
-		strings.ToLower(formatStr), // Use the lowercased string form for DB
+		strings.ToLower(formatStr),
 		strings.ToLower(template.DeliveryInterval),
 		template.DeliveryTime,
 		template.IsRecurring,
+		template.ColorImages,
 	)
 
 	if err != nil {
@@ -105,13 +106,13 @@ func (r *EditionTemplateRepository) GetEditionTemplateByID(ctx context.Context, 
 
 	query := `
 		SELECT id, user_id, created_at, name, description,
-		       format, delivery_interval, delivery_time, is_recurring
+		       format, delivery_interval, delivery_time, is_recurring, color_images
 		FROM edition_templates
 		WHERE id = $1 AND user_id = $2
 	`
 	var t models.EditionTemplate
 	var description sql.NullString
-	var formatStr string // Scan into string first
+	var formatStr string
 
 	row := r.db.QueryRowContext(ctx, query, templateID, userID)
 	err := row.Scan(
@@ -120,10 +121,11 @@ func (r *EditionTemplateRepository) GetEditionTemplateByID(ctx context.Context, 
 		&t.CreatedAt,
 		&t.Name,
 		&description,
-		&formatStr, // Scan into string
+		&formatStr,
 		&t.DeliveryInterval,
 		&t.DeliveryTime,
 		&t.IsRecurring,
+		&t.ColorImages,
 	)
 
 	if err != nil {
@@ -148,7 +150,7 @@ func (r *EditionTemplateRepository) GetEditionTemplatesByUserID(ctx context.Cont
 
 	query := `
 		SELECT id, user_id, created_at, name, description,
-		       format, delivery_interval, delivery_time, is_recurring
+		       format, delivery_interval, delivery_time, is_recurring, color_images
 		FROM edition_templates
 		WHERE user_id = $1
 		ORDER BY name ASC
@@ -163,24 +165,25 @@ func (r *EditionTemplateRepository) GetEditionTemplatesByUserID(ctx context.Cont
 	for rows.Next() {
 		var t models.EditionTemplate
 		var description sql.NullString
-		var formatStr string // Scan into string
+		var formatStr string
 		if err := rows.Scan(
 			&t.ID,
 			&t.UserID,
 			&t.CreatedAt,
 			&t.Name,
 			&description,
-			&formatStr, // Scan into string
+			&formatStr,
 			&t.DeliveryInterval,
 			&t.DeliveryTime,
 			&t.IsRecurring,
+			&t.ColorImages,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan edition template row for user ID %s: %w", userID, err)
 		}
 		if description.Valid {
 			t.Description = description.String
 		}
-		t.Format = models.EditionFormat(formatStr) // Convert string to models.EditionFormat
+		t.Format = models.EditionFormat(formatStr)
 		templates = append(templates, t)
 	}
 
@@ -225,16 +228,18 @@ func (r *EditionTemplateRepository) UpdateEditionTemplate(ctx context.Context, t
 		    format = $3,
 		    delivery_interval = $4,
 		    delivery_time = $5,
-		    is_recurring = $6
-		WHERE id = $7 AND user_id = $8
+		    is_recurring = $6,
+		    color_images = $7
+		WHERE id = $8 AND user_id = $9
 	`
 	result, err := r.db.ExecContext(ctx, query,
 		template.Name,
 		NewNullString(template.Description),
-		strings.ToLower(formatStr), // Use lowercased string for DB
+		strings.ToLower(formatStr),
 		strings.ToLower(template.DeliveryInterval),
 		template.DeliveryTime,
 		template.IsRecurring,
+		template.ColorImages,
 		template.ID,
 		template.UserID,
 	)
@@ -257,7 +262,7 @@ func (r *EditionTemplateRepository) UpdateEditionTemplate(ctx context.Context, t
 func (r *EditionTemplateRepository) GetAllRecurringTemplates(ctx context.Context) ([]models.EditionTemplate, error) {
 	query := `
 		SELECT id, user_id, created_at, name, description,
-		       format, delivery_interval, delivery_time, is_recurring
+		       format, delivery_interval, delivery_time, is_recurring, color_images
 		FROM edition_templates
 		WHERE is_recurring = true
 	`
@@ -274,7 +279,7 @@ func (r *EditionTemplateRepository) GetAllRecurringTemplates(ctx context.Context
 		var formatStr string
 		if err := rows.Scan(
 			&t.ID, &t.UserID, &t.CreatedAt, &t.Name, &description,
-			&formatStr, &t.DeliveryInterval, &t.DeliveryTime, &t.IsRecurring,
+			&formatStr, &t.DeliveryInterval, &t.DeliveryTime, &t.IsRecurring, &t.ColorImages,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan recurring edition template row: %w", err)
 		}

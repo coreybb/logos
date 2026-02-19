@@ -53,10 +53,9 @@ func NewEditionProcessor(
 func (ep *EditionProcessor) ProcessAndGenerateEdition(
 	ctx context.Context,
 	editionID string,
-	// Explicitly pass targetFormat and destinationID for now to simplify.
-	// Later, these could be derived from EditionTemplate or User defaults.
 	targetFormat models.EditionFormat,
 	deliveryDestinationID string,
+	colorImages bool,
 ) (*models.Delivery, error) {
 	// 1. Fetch Edition
 	edition, err := ep.EditionRepo.GetEditionByID(ctx, editionID)
@@ -115,11 +114,12 @@ func (ep *EditionProcessor) ProcessAndGenerateEdition(
 	log.Printf("INFO (EditionProcessor): Generating edition %s (%s) from combined readings (%s) to format %s", edition.ID, edition.Name, combinedHTMLPath, targetFormat)
 	generatedFilePath, fileSize, genErr := ep.Generator.GenerateEdition(
 		ctx,
-		combinedHTMLPath, // Use the path to the temporary combined HTML file
+		combinedHTMLPath,
 		metadata,
 		targetFormat,
-		absEditionsOutputDir, // Pass absolute output directory
+		absEditionsOutputDir,
 		edition.ID,
+		colorImages,
 	)
 	if genErr != nil {
 		return nil, fmt.Errorf("failed to generate ebook for edition %s: %w", editionID, genErr)

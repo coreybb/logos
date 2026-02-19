@@ -26,6 +26,7 @@ type EditionTemplate struct {
 	DeliveryInterval string        `json:"delivery_interval"` // Corresponds to edition_delivery_interval ENUM ('hourly', 'daily', 'weekly', 'monthly')
 	DeliveryTime     string        `json:"delivery_time"`     // SQL TIME type, represented as "HH:MM:SS" string
 	IsRecurring      bool          `json:"is_recurring"`
+	ColorImages      bool          `json:"color_images"` // If true, images are kept in color; otherwise converted to grayscale
 }
 
 // IsValidEditionFormat checks if the provided format string is a valid EditionFormat.

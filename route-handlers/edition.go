@@ -122,7 +122,7 @@ func (h *EditionHandler) HandleGenerateEditionDocument(w http.ResponseWriter, r 
 		return webutil.ErrBadRequest("Invalid delivery_destination_id format")
 	}
 
-	generatedDelivery, err := h.Processor.ProcessAndGenerateEdition(r.Context(), editionID, targetFormat, deliveryDestinationID)
+	generatedDelivery, err := h.Processor.ProcessAndGenerateEdition(r.Context(), editionID, targetFormat, deliveryDestinationID, false)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			return webutil.ErrNotFound(err.Error())

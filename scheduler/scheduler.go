@@ -167,7 +167,7 @@ func (s *Scheduler) processTemplate(ctx context.Context, template *models.Editio
 		edition.ID, editionName, len(readings), template.UserID)
 
 	// 8. Generate the ebook
-	generatedDelivery, err := s.editionProcessor.ProcessAndGenerateEdition(ctx, edition.ID, template.Format, defaultDest.ID)
+	generatedDelivery, err := s.editionProcessor.ProcessAndGenerateEdition(ctx, edition.ID, template.Format, defaultDest.ID, template.ColorImages)
 	if err != nil {
 		log.Printf("ERROR (Scheduler): Failed to generate ebook for edition %s: %v", edition.ID, err)
 		return false
